@@ -74,9 +74,11 @@ def train_VAE(model, device, loader_train, optimizer, num_epochs, latent_dim, be
     assert isinstance(latent_dim, tuple) and len(latent_dim) == 3, "latent_dim must be a tuple of length 3"
     timestamp = int(time())
     
+    opt_ae, opt_disc = optimizer
     
     train_losses = []
     test_losses = []
+    global_step = 0
     for epoch in range(num_epochs):  
         model.train()
         train_loss = 0
@@ -93,29 +95,30 @@ def train_VAE(model, device, loader_train, optimizer, num_epochs, latent_dim, be
                 opt_ae.zero_grad()
                 opt_disc.zero_grad()
                 
-                data = model.get_inputs(data)
+                data = model.get_input(data)
                 reconstructions, posterior = model(data, y)
-                aeloss, _ = model.loss(inputs, reconstructions, posterior, 0, model.global_step,
+                
+                aeloss, _ = model.loss(data, reconstructions, posterior, 0, global_step,
                                             last_layer=model.get_last_layer(), split="train")
                 
                 aeloss.backward()
                 
-                discloss, _ = model.loss(inputs, reconstructions, posterior, 1, model.global_step,
+                discloss, _ = model.loss(data, reconstructions, posterior, 1, global_step,
                                                 last_layer=model.get_last_layer(), split="train")
                 discloss.backward()
                 
                 opt_ae.step()
                 opt_disc.step()
                 
-                tepoch.set_description(f"Epoch {epoch}")
-                tepoch.set_postfix(loss=loss.item()/len(data), loss_recons=loss_recons.item()/len(data), loss_vq=loss_vq.item()/len(data), loss_commit=loss_commit.item()/len(data))
-    
+                tepoch.set_description(f"Epoch {epoch}, Global step {global_step}")
+                tepoch.set_postfix(aeloss=aeloss.item()/len(data), discloss=discloss.item()/len(data))
+                global_step += 1
     
             
             model.eval()
             with torch.no_grad():
                 data, y = next(iter(loader_test))
-                data = model.get_inputs(data)
+                data = model.get_input(data)
                 data = data.to(device)
                 y = y.to(device)
                 reconstructions, posterior = model(data, y)
@@ -123,15 +126,15 @@ def train_VAE(model, device, loader_train, optimizer, num_epochs, latent_dim, be
                 recons = make_grid(torch.clamp(denorm(reconstructions, mean, std), 0., 1.), nrow=4, padding=0, normalize=False,
                                         range=None, scale_each=False, pad_value=0)
                 plt.figure(figsize = (8,8))
-                save_image(recons, f'./TVQVAE/results/{timestamp}', epoch+1)
+                save_image(recons, f'./T-Autoencoder-KL/results/{timestamp}', epoch+1)
 
         # save the model
         if epoch == num_epochs - 1:
             with torch.no_grad():
-                torch.save(model, f'./TVQVAE/results/{timestamp}/TVQVAE.pt')
+                torch.save(model, f'./T-Autoencoder-KL/results/{timestamp}/TVQVAE.pt')
     return train_losses
 
 
 # %%
 if __name__ == '__main__':
-    train_losses = train_VAE(model, device, loader_train, optimizer, 8, latent_dim, beta_warm_up_period=10)
+    train_losses = train_VAE(model, device, loader_train, (opt_ae, opt_disc), 8, latent_dim, beta_warm_up_period=10)
