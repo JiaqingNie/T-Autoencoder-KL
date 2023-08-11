@@ -241,3 +241,4 @@ pyrightconfig.json
 data/
 logs/
 _cache*
+taming/
