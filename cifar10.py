@@ -131,7 +131,7 @@ def train_VAE(model, device, loader_train, optimizer, num_epochs, latent_dim, be
         # save the model
         if epoch == num_epochs - 1:
             with torch.no_grad():
-                torch.save(model, f'./T-Autoencoder-KL/results/{timestamp}/TVQVAE.pt')
+                torch.save(model, f'./T-Autoencoder-KL/results/{timestamp}/TAEKL.pt')
     return train_losses
 
 
