@@ -68,6 +68,7 @@ latent_dim = (8,8,4)
 model = TAutoencoderKL(latent_dim=latent_dim, image_size=32, patch_size=2, in_channels=3, hidden_size=768, depth=12, num_heads=6, mlp_ratio=6.0, num_classes=10, dropout_prob=0.1)
 model.to(device)
 opt_ae, opt_disc = model.configure_optimizers()
+disc_train_period = 1
 
 # %%
 def train_VAE(model, device, loader_train, optimizer, num_epochs, latent_dim, beta_warm_up_period=1):
@@ -98,20 +99,24 @@ def train_VAE(model, device, loader_train, optimizer, num_epochs, latent_dim, be
                 data = model.get_input(data)
                 reconstructions, posterior = model(data, y)
                 
-                aeloss, _ = model.loss(data, reconstructions, posterior, 0, global_step,
+                aeloss, log = model.loss(data, reconstructions, posterior, 0, global_step,
                                             last_layer=model.get_last_layer(), split="train")
                 
                 aeloss.backward()
-                
-                discloss, _ = model.loss(data, reconstructions, posterior, 1, global_step,
-                                                last_layer=model.get_last_layer(), split="train")
-                discloss.backward()
-                
                 opt_ae.step()
-                opt_disc.step()
                 
-                tepoch.set_description(f"Epoch {epoch}, Global step {global_step}")
-                tepoch.set_postfix(aeloss=aeloss.item()/len(data), discloss=discloss.item()/len(data))
+                discloss = None
+                if global_step % disc_train_period == 0:
+                    discloss, _ = model.loss(data, reconstructions, posterior, 1, global_step,
+                                                last_layer=model.get_last_layer(), split="train")
+                    discloss.backward()
+                    opt_disc.step()
+                
+                tepoch.set_description(f"Epoch {epoch}, GS {global_step}")
+                if discloss is not None:
+                    tepoch.set_postfix(aeloss=aeloss.item()/len(data), d_weight=log["train/d_weight"].item(), dis_fact=log["train/disc_factor"].item(), g_loss=log["train/g_loss"].item(), discloss=discloss.item()/len(data))
+                else:
+                    tepoch.set_postfix(aeloss=aeloss.item()/len(data), d_weight=log["train/d_weight"].item(), dis_fact=log["train/disc_factor"].item(), g_loss=log["train/g_loss"].item())
                 global_step += 1
     
             

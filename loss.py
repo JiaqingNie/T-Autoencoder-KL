@@ -3,9 +3,26 @@ import torch.nn as nn
 
 from taming.modules.losses.vqperceptual import *  
 
+def process_discriminator_output(d_out, epsilon=1e-12):
+    """
+    Process discriminator output: apply sigmoid, then take the log.
+    
+    d_out: tensor, the raw output from NLayerDiscriminator.
+    epsilon: small value added to sigmoid output for numerical stability.
+    
+    Returns:
+    log_output: tensor, the log of the sigmoid of d_out.
+    """
+    # Apply sigmoid
+    sigmoid_out = torch.sigmoid(d_out)
+    
+    # Add epsilon for numerical stability when taking log
+    log_output = torch.log(sigmoid_out + epsilon)
+        
+    return log_output
 
 class LPIPSWithDiscriminator(nn.Module):
-    def __init__(self, disc_start=25001, logvar_init=0.0, kl_weight=1.0, pixelloss_weight=1.0,
+    def __init__(self, disc_start=50001, logvar_init=0.0, kl_weight=1.0e-06, pixelloss_weight=1.0,
                  disc_num_layers=3, disc_in_channels=3, disc_factor=1.0, disc_weight=0.5,
                  perceptual_weight=1.0, use_actnorm=False, disc_conditional=False,
                  disc_loss="hinge"):
@@ -68,6 +85,8 @@ class LPIPSWithDiscriminator(nn.Module):
             else:
                 assert self.disc_conditional
                 logits_fake = self.discriminator(torch.cat((reconstructions.contiguous(), cond), dim=1))
+            logits_fake = process_discriminator_output(logits_fake)
+            # User negative logits for generator loss
             g_loss = -torch.mean(logits_fake)
 
             if self.disc_factor > 0.0:
@@ -103,7 +122,9 @@ class LPIPSWithDiscriminator(nn.Module):
             disc_factor = adopt_weight(self.disc_factor, global_step, threshold=self.discriminator_iter_start)
             d_loss = disc_factor * self.disc_loss(logits_real, logits_fake)
 
-            log = {"{}/disc_loss".format(split): d_loss.clone().detach().mean(),
+            log = {
+                   "{}/disc_loss".format(split): d_loss.clone().detach().mean(),
+                   "{}/disc_factor".format(split): torch.tensor(disc_factor),
                    "{}/logits_real".format(split): logits_real.detach().mean(),
                    "{}/logits_fake".format(split): logits_fake.detach().mean()
                    }
