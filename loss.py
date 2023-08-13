@@ -85,9 +85,14 @@ class LPIPSWithDiscriminator(nn.Module):
             else:
                 assert self.disc_conditional
                 logits_fake = self.discriminator(torch.cat((reconstructions.contiguous(), cond), dim=1))
-            logits_fake = process_discriminator_output(logits_fake)
-            # User negative logits for generator loss
-            g_loss = -torch.mean(logits_fake)
+            
+            #logits_fake = process_discriminator_output(logits_fake)
+            #g_loss = -torch.mean(logits_fake)
+            
+            target = torch.ones_like(logits_fake)
+            bce_loss = torch.nn.functional.binary_cross_entropy_with_logits(logits_fake, target)
+            
+            g_loss = torch.mean(bce_loss)
 
             if self.disc_factor > 0.0:
                 try:

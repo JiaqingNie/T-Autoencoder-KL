@@ -22,6 +22,7 @@ class TAutoencoderKL(pl.LightningModule):
                  dropout_prob=0.1,
                  z_channels=None,
                  lr=0.0001,
+                 disc_start=50001,
                  ):
         super().__init__()
         if latent_dim is None:
@@ -39,7 +40,7 @@ class TAutoencoderKL(pl.LightningModule):
         #self.image_key = image_key
         self.encoder = Encoder(self.latent_dim, image_size=image_size, patch_size=patch_size, in_channels=in_channels, hidden_size=hidden_size, depth=depth, num_heads=num_heads, mlp_ratio=mlp_ratio, num_classes=num_classes, dropout_prob=dropout_prob)
         self.decoder = Decoder(self.latent_dim, image_size=image_size, patch_size=patch_size, in_channels=in_channels, hidden_size=hidden_size, depth=depth, num_heads=num_heads, mlp_ratio=mlp_ratio, num_classes=num_classes, dropout_prob=dropout_prob)
-        self.loss = LPIPSWithDiscriminator()
+        self.loss = LPIPSWithDiscriminator(disc_start=disc_start)
 
         self.embed_dim = self.latent_dim[2]
         self.quant_conv = torch.nn.Conv2d(2*self.z_channels, 2*self.embed_dim, 1)
