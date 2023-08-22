@@ -85,7 +85,7 @@ def cleanup():
 def setup_logger(rank):
     logger = logging.getLogger(f"Rank_{rank}")
     logger.setLevel(logging.INFO)
-    filename = f'T-Autoencoder-KL/logs/rank_{rank}.log'
+    filename = f'./logs/rank_{rank}.log'
     if os.path.exists(filename):
         os.remove(filename)
     fh = logging.FileHandler(filename)  # 每个 rank 有自己的日志文件
@@ -100,16 +100,14 @@ def train(rank, world_size, num_epochs=8):
         setup(rank, world_size)
         logger = setup_logger(rank)
         
-        data_path = '/vol/bitbucket/jn222/data/lsun'
+        data_path = '/prj/data/lsun'
         batch_size = 4
-        img_size = 32
-        latent_dim = (8,8,4)
-        beta = 1
+        img_size = 64
+        latent_dim = (16,16,4)
         num_samples = 50000
         ckpt_period = 2
-        log_interval = 10
-        disc_train_period = 5
-        disc_start = 150001
+        disc_train_period = 1
+        disc_start = 37501
         
         mean = (0.5, 0.5, 0.5)
         std = (0.5, 0.5, 0.5)
@@ -141,10 +139,26 @@ def train(rank, world_size, num_epochs=8):
         logger.info("Done!")
 
         # %%
-        model = TAutoencoderKL(latent_dim=latent_dim, image_size=img_size, patch_size=2, in_channels=3, hidden_size=768, depth=12, num_heads=6, mlp_ratio=6.0, num_classes=3, dropout_prob=0.1, disc_start=disc_start)
+        model = TAutoencoderKL(latent_dim=latent_dim, 
+                               image_size=img_size, 
+                               patch_size=2, 
+                               in_channels=3, 
+                               hidden_size=768, 
+                               depth=12, 
+                               num_heads=6, 
+                               mlp_ratio=6.0, 
+                               num_classes=3, 
+                               dropout_prob=0.1, 
+                               disc_start=disc_start,
+                               kl_weight=1.0e-1,
+                               num_epochs=num_epochs)
+        
         model.to(rank)
         model = DistributedDataParallel(model, device_ids=[rank])
+        logger.info(f"TAKL Parameters: {sum(p.numel() for p in model.parameters()):,}")
         opt_ae, opt_disc = model.module.configure_optimizers()
+        
+        log_interval = 10
 
 
         assert isinstance(latent_dim, tuple) and len(latent_dim) == 3, "latent_dim must be a tuple of length 3"
@@ -155,12 +169,10 @@ def train(rank, world_size, num_epochs=8):
             data = model.module.get_input(data)
             data = data.to(rank)
             y = y.to(rank)
-            recon_x, _= model(data, y)
-            recon_x = recon_x.cpu()
-            recons = make_grid(torch.clamp(denorm(recon_x, mean, std), 0., 1.), nrow=2, padding=0, normalize=False,
+            recons = make_grid(torch.clamp(denorm(data, mean, std), 0., 1.), nrow=2, padding=0, normalize=False,
                                     range=None, scale_each=False, pad_value=0)
             plt.figure(figsize = (8,8))
-            save_image(recons, f'T-Autoencoder-KL/results/{timestamp}', f"0-{rank}")
+            save_image(recons, f'./results/{timestamp}', f"0-{rank}")
         
         global_step = 0
         logger.info(f"Training on rank {rank}...")
@@ -183,20 +195,21 @@ def train(rank, world_size, num_epochs=8):
                     aeloss.backward()
                     opt_ae.step()
                 
-                    discloss = 0
+                    discloss = torch.tensor(0.)
                     if global_step % disc_train_period == 0:
                         discloss, _ = model.module.loss(data, reconstructions, posterior, 1, global_step,
-                                                    last_layer=model.module.get_last_layer(), split="train")
+                                                    last_layer=model.module.get_last_layer(), split="train", curr_epoch=epoch)
                         discloss.backward()
                         opt_disc.step()
                     
                     
                     if batch_idx % log_interval == 0 or batch_idx == len(train_loader)-1:
+                        loss_text = f"Epoch {epoch} - Batch {batch_idx}"
+                        for k in log:
+                            loss_text += f" - {k}: {log[k].item()}"
                         if global_step >= disc_start:
-                            logger.info(f"Epoch {epoch} - Batch {batch_idx} - AE_loss: {aeloss.item()/len(data)} - g_loss: {log['train/g_loss'].item()} - disc_loss: {discloss.item()/len(data)}")
-                        else:
-                            logger.info(f"Epoch {epoch} - Batch {batch_idx} - AE_loss: {aeloss.item()/len(data)} - g_loss: {log['train/g_loss'].item()} ")
-
+                            loss_text += f" - disc_loss: {discloss.item()/len(data)}"
+                        logger.info(loss_text)
                     global_step += 1
         
                 model.eval()
@@ -207,15 +220,15 @@ def train(rank, world_size, num_epochs=8):
                     y = y.to(rank)
                     recon_x, _ = model(data, y)
                     recon_x = recon_x.cpu()
-                    recons = make_grid(torch.clamp(denorm(recon_x, mean, std), 0., 1.), nrow=4, padding=0, normalize=False,
+                    recons = make_grid(torch.clamp(denorm(recon_x, mean, std), 0., 1.), nrow=2, padding=0, normalize=False,
                                             range=None, scale_each=False, pad_value=0)
                     plt.figure(figsize = (8,8))
-                    save_image(recons, f'T-Autoencoder-KL/results/{timestamp}', f"{epoch+1}-{rank}")
+                    save_image(recons, f'./results/{timestamp}', f"{epoch+1}-{rank}")
 
             # save the model
             if (epoch + 1) % ckpt_period == 0 or epoch == num_epochs - 1:
                 with torch.no_grad():
-                    torch.save(model, f'T-Autoencoder-KL/results/{timestamp}/TAKL-{epoch}.pt')
+                    torch.save(model, f'./results/{timestamp}/TAKL-{epoch}.pt')
 
         return 
     
@@ -225,8 +238,8 @@ def train(rank, world_size, num_epochs=8):
         cleanup()
 
 def main():
-    world_size = 1
-    epochs = 8
+    world_size = 4
+    epochs = 10
     mp.spawn(train, args=(world_size, epochs), nprocs=world_size, join=True)
 
 # %%

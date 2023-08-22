@@ -40,7 +40,7 @@ def save_image(img, path, name):
     plt.savefig(f'{path}/{name}.png')
 
 # %%
-data_path = './data'
+data_path = '../data'
 batch_size = 4
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
@@ -131,12 +131,12 @@ def train_VAE(model, device, loader_train, optimizer, num_epochs, latent_dim, be
                 recons = make_grid(torch.clamp(denorm(reconstructions, mean, std), 0., 1.), nrow=4, padding=0, normalize=False,
                                         range=None, scale_each=False, pad_value=0)
                 plt.figure(figsize = (8,8))
-                save_image(recons, f'./T-Autoencoder-KL/results/{timestamp}', epoch+1)
+                save_image(recons, f'./results/{timestamp}', epoch+1)
 
         # save the model
         if epoch == num_epochs - 1:
             with torch.no_grad():
-                torch.save(model, f'./T-Autoencoder-KL/results/{timestamp}/TAEKL.pt')
+                torch.save(model, f'./results/{timestamp}/TAEKL.pt')
     return train_losses
 
 
